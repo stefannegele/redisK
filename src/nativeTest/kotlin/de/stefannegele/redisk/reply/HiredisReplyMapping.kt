@@ -4,6 +4,7 @@ import hiredis.*
 import kotlinx.cinterop.*
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class HiredisReplyMappingTest {
 
@@ -13,7 +14,7 @@ class HiredisReplyMappingTest {
             type = REDIS_REPLY_NIL
         }
 
-        assertEquals(RedisReply.Type.Empty, reply.convert().type)
+        assertTrue(reply.convert() is RedisReply.Empty)
     }
 
     @Test
@@ -24,8 +25,8 @@ class HiredisReplyMappingTest {
             str = string.ptr
         }
 
-        assertEquals(RedisReply.Type.Status, reply.convert().type)
-        assertEquals(string.ptr.toKStringFromUtf8(), reply.convert().string)
+        assertTrue(reply.convert() is RedisReply.Status)
+        assertEquals(string.ptr.toKStringFromUtf8(), reply.convert().asType<RedisReply.Status>().status)
     }
 
     @Test
@@ -36,8 +37,7 @@ class HiredisReplyMappingTest {
             str = string.ptr
         }
 
-        assertEquals(RedisReply.Type.Error, reply.convert().type)
-        assertEquals(string.ptr.toKStringFromUtf8(), reply.convert().string)
+        assertEquals(string.ptr.toKStringFromUtf8(), reply.convert().asType<RedisReply.Error>().error)
     }
 
     @Test
@@ -47,8 +47,7 @@ class HiredisReplyMappingTest {
             integer = 24
         }
 
-        assertEquals(RedisReply.Type.Integer, reply.convert().type)
-        assertEquals(24, reply.convert().integer)
+        assertEquals(24, reply.convert().asType<RedisReply.Integer>().integer)
     }
 
     @Test
@@ -59,12 +58,11 @@ class HiredisReplyMappingTest {
             str = string.ptr
         }
 
-        assertEquals(RedisReply.Type.String, reply.convert().type)
-        assertEquals(string.ptr.toKStringFromUtf8(), reply.convert().string)
+        assertEquals(string.ptr.toKStringFromUtf8(), reply.convert().asType<RedisReply.Text>().text)
     }
 
     @Test
-    fun `convertArray converts sub elements`() = memScoped {
+    fun `convertArray converts sub elements`() = memScoped<Unit> {
         val string = alloc<redisReply> {
             type = REDIS_REPLY_STRING
             str = alloc<ByteVar>().ptr
@@ -91,16 +89,15 @@ class HiredisReplyMappingTest {
             element = ptrList
         }
 
-        val result = reply.convert()
+        val result = reply.convert().asType<RedisReply.Array>()
 
-        assertEquals(RedisReply.Type.Array, result.type)
-        assertEquals(RedisReply.Type.String, result.elements?.get(0)?.type)
-        assertEquals(RedisReply.Type.Empty, result.elements?.get(1)?.type)
-        assertEquals(RedisReply.Type.Integer, result.elements?.get(2)?.type)
+        result.elements[0].asType<RedisReply.Text>()
+        result.elements[1].asType<RedisReply.Empty>()
+        result.elements[2].asType<RedisReply.Integer>()
     }
 
     @Test
-    fun `convertArray creates multiple dimensional array responses`() = memScoped {
+    fun `convertArray creates multi dimensional array responses`() = memScoped<Unit> {
         val level3 = alloc<redisReply> {
             type = REDIS_REPLY_NIL
         }
@@ -125,7 +122,11 @@ class HiredisReplyMappingTest {
 
         val result = level1.convert()
 
-        assertEquals(RedisReply.Type.Array, result.type)
+        result.asType<RedisReply.Array>()
+            .elements[0]
+            .asType<RedisReply.Array>()
+            .elements[0]
+            .asType<RedisReply.Empty>()
     }
 
 }

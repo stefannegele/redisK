@@ -1,5 +1,7 @@
 package de.stefannegele.redisk.context
 
+import de.stefannegele.redisk.reply.RedisReply
+import de.stefannegele.redisk.reply.asType
 import de.stefannegele.redisk.testWithRedisContext
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -7,11 +9,11 @@ import kotlin.test.assertEquals
 class RedisContextTest {
 
     @Test
-    fun `execute can successfully send an command to redis and get the result`() = testWithRedisContext {
+    fun `execute can successfully send a command to redis and get the result`() = testWithRedisContext {
         execute("SET foo bar")
         val result = execute("GET foo")
 
-        assertEquals("bar", result.string)
+        assertEquals("bar", result.asType<RedisReply.Text>().text)
     }
 
     @Test
@@ -23,7 +25,7 @@ class RedisContextTest {
             "GET foo"
         )
 
-        assertEquals("pipeline", result[1].string)
+        assertEquals("pipeline", result[1].asType<RedisReply.Text>().text)
     }
 
 }

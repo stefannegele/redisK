@@ -2,6 +2,7 @@ package de.stefannegele.redisk.reply
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFails
 import kotlin.test.assertFailsWith
 
 class RedisReplyTest {
@@ -9,10 +10,10 @@ class RedisReplyTest {
     @Test
     fun toStringMap() {
         val result = listOf(
-            RedisReply(RedisReply.Type.String, string = "bwa"),
-            RedisReply(RedisReply.Type.String, string = "wat"),
-            RedisReply(RedisReply.Type.String, string = "baw"),
-            RedisReply(RedisReply.Type.String, string = "wah")
+            RedisReply.Text("bwa"),
+            RedisReply.Text("wat"),
+            RedisReply.Text("baw"),
+            RedisReply.Text("wah")
         ).toStringMap()
 
         assertEquals("wat", result["bwa"])
@@ -20,25 +21,36 @@ class RedisReplyTest {
 
         assertFailsWith<IllegalArgumentException> {
             listOf(
-                RedisReply(RedisReply.Type.String, string = "bwa"),
-                RedisReply(RedisReply.Type.String, string = "wat"),
-                RedisReply(RedisReply.Type.String, string = "baw")
+                RedisReply.Text("bwa"),
+                RedisReply.Text("wat"),
+                RedisReply.Text("baw")
             ).toStringMap()
         }
     }
 
     @Test
-    fun checkForError() {
-        val reply = RedisReply(RedisReply.Type.Error, string = "Some error.")
+    fun `asType works with RedisReply Array`() {
+        val reply: RedisReply = RedisReply.Array(emptyList())
 
-        assertFailsWith<RedisReplyError> { reply.checkForError() }
+        assertEquals(RedisReply.Array::class, reply.asType<RedisReply.Array>()::class)
 
-        // check that other replies do not fail
-        RedisReply(RedisReply.Type.Array).checkForError()
-        RedisReply(RedisReply.Type.Empty).checkForError()
-        RedisReply(RedisReply.Type.Integer).checkForError()
-        RedisReply(RedisReply.Type.Status).checkForError()
-        RedisReply(RedisReply.Type.String).checkForError()
+        assertFailsWith<IllegalArgumentException> { reply.asType<RedisReply.Empty>() }
+        assertFailsWith<IllegalArgumentException> { reply.asType<RedisReply.Error>() }
+        assertFailsWith<IllegalArgumentException> { reply.asType<RedisReply.Integer>() }
+        assertFailsWith<IllegalArgumentException> { reply.asType<RedisReply.Status>() }
+        assertFailsWith<IllegalArgumentException> { reply.asType<RedisReply.Text>() }
+    }
+
+    @Test
+    fun `asType works with RedisReply Error`() {
+        val reply: RedisReply = RedisReply.Error("message")
+
+        assertEquals(RedisReply.Error::class, reply.asType<RedisReply.Error>()::class)
+        assertFailsWith<RedisReplyError> { reply.asType<RedisReply.Array>() }
+        assertFailsWith<RedisReplyError> { reply.asType<RedisReply.Empty>() }
+        assertFailsWith<RedisReplyError> { reply.asType<RedisReply.Integer>() }
+        assertFailsWith<RedisReplyError> { reply.asType<RedisReply.Status>() }
+        assertFailsWith<RedisReplyError> { reply.asType<RedisReply.Text>() }
     }
 
 }

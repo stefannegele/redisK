@@ -2,8 +2,7 @@ package de.stefannegele.redisk.commands
 
 import de.stefannegele.redisk.context.RedisContext
 import de.stefannegele.redisk.reply.RedisReply
-import de.stefannegele.redisk.reply.RedisReplyError
-import de.stefannegele.redisk.reply.checkForError
+import de.stefannegele.redisk.reply.asType
 import de.stefannegele.redisk.reply.toStringMap
 
 const val STREAM_ID_LAST = "$"
@@ -21,8 +20,8 @@ suspend fun RedisContext.xAdd(
     payload: Map<String, String>,
     id: String = STREAM_ID_AUTO_GENERATE
 ): String = execute("XADD $stream $id ${payload.asArguments()}")
-    .checkForError()
-    .id
+    .asType<RedisReply.Text>()
+    .text
 
 private fun Map<String, String>.asArguments() = map { "${it.key} ${it.value}" }
     .joinToString(" ")
@@ -34,8 +33,8 @@ suspend fun RedisContext.xDel(
     stream: String,
     vararg id: String
 ): Long = execute("XDEL $stream ${id.asArguments()}")
-    .checkForError()
-    .count
+    .asType<RedisReply.Integer>()
+    .integer
 
 
 // XRANGE
@@ -51,9 +50,9 @@ suspend fun RedisContext.xRange(
     configure: XRangeConfiguration.() -> Unit = {}
 ): List<RedisStreamElementResponse> = XRangeConfiguration().apply(configure)
     .run { execute("XRANGE $stream $start $end $countStatement") }
-    .checkForError()
-    .let { it.elements ?: emptyList() }
-    .map { it.redisStreamElement }
+    .asType<RedisReply.Array>()
+    .elements
+    .map { it.asStreamElementResponse() }
 
 
 // XGROUP CREATE
@@ -67,8 +66,8 @@ suspend fun RedisContext.xGroupCreate(
     configure: XGroupCreateConfig.() -> Unit = {}
 ) = XGroupCreateConfig().apply(configure)
     .run { execute("XGROUP CREATE $stream $group $id $mkStreamStatement") }
-    .checkForError()
-    .let { Unit }
+    .asType<RedisReply.Status>()
+    .status
 
 private val XGroupCreateConfig.mkStreamStatement
     get() = if (mkStream) "MKSTREAM" else ""
@@ -89,9 +88,11 @@ suspend fun RedisContext.xReadGroup(
     configure: XReadGroupConfiguration.() -> Unit = {}
 ): List<RedisStreamResponse> = XReadGroupConfiguration().apply(configure)
     .run { execute("XREADGROUP GROUP $group $consumer $blockStatement $countStatement $noAckStatement STREAMS ${streamAndId.streams()} ${streamAndId.ids()}") }
-    .checkForError()
-    .run { elements ?: emptyList() }
-    .map { reply -> reply.redisStream }
+    .takeUnless { it is RedisReply.Empty }
+    ?.asType<RedisReply.Array>()
+    ?.elements
+    ?.map { reply -> reply.asStreamResponse() }
+    ?: emptyList()
 
 private val XReadGroupConfiguration.noAckStatement
     get() = if (noAck) "NOACK" else ""
@@ -100,9 +101,8 @@ private val XReadGroupConfiguration.noAckStatement
 
 suspend fun RedisContext.xAck(stream: String, group: String, vararg id: String): Long =
     execute("XACK $stream $group ${id.asArguments()}")
-        .checkForError()
-        .count
-
+        .asType<RedisReply.Integer>()
+        .integer
 
 // common
 
@@ -127,27 +127,30 @@ private fun Array<out StreamAndId>.ids() = joinToString(" ") { it.id }
 
 private fun Array<out String>.asArguments() = joinToString(" ")
 
-private val RedisReply.redisStream: RedisStreamResponse
-    get() = RedisStreamResponse(name = nameElement, elements = redisStreamElements)
+private fun RedisReply.asStreamResponse(): RedisStreamResponse =
+    asType<RedisReply.Array>().run {
+        RedisStreamResponse(name = nameElement, elements = streamElements)
+    }
 
-private val RedisReply.redisStreamElements: List<RedisStreamElementResponse>
-    get() = elements
-        ?.get(1)
-        ?.elements
-        ?.map { it.redisStreamElement }
-        ?: emptyList()
+private val RedisReply.Array.streamElements: List<RedisStreamElementResponse>
+    get() = elements[1]
+        .asType<RedisReply.Array>()
+        .elements
+        .map { it.asStreamElementResponse() }
 
-private val RedisReply.redisStreamElement: RedisStreamElementResponse
-    get() = RedisStreamElementResponse(id = nameElement, payload = payload)
+private fun RedisReply.asStreamElementResponse(): RedisStreamElementResponse =
+    asType<RedisReply.Array>().run {
+        RedisStreamElementResponse(id = nameElement, payload = payload)
+    }
 
-private val RedisReply.nameElement: String
-    get() = elements?.first()?.string ?: throw RedisReplyError("No name in reply.")
+private val RedisReply.Array.nameElement: String
+    get() = elements.first()
+        .asType<RedisReply.Text>()
+        .text
 
-private val RedisReply.payload: Map<String, String>
-    get() = elements?.get(1)?.elements?.toStringMap() ?: emptyMap()
-
-private val RedisReply.count
-    get() = integer ?: 0
-
-private val RedisReply.id
-    get() = string ?: throw RedisReplyError("No id in reply.")
+private val RedisReply.Array.payload: Map<String, String>
+    get() = elements[1]
+        .asType<RedisReply.Array>()
+        .elements
+        .map { it.asType<RedisReply.Text>() }
+        .toStringMap()
